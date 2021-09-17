@@ -1,0 +1,306 @@
+---
+title: "Ανάλυση της πτητικής δραστηριότητας με δεδομένα Leonardo XC και την R."
+author: Λεωνίδας Λιάκος
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    theme: lumen
+  rmarkdown::html_document:
+    theme: lumen
+  html_notebook:
+    toc: yes
+    theme: lumen
+---
+
+# Εισαγωγή
+
+Tο [Leonardo XC](https://github.com/leonardoxc/leonardoxc) είναι μια διαδικτυακή πλατφόρμα για την καταγραφή (logbook) και οπτικοποίηση πτήσεων, κυρίως με ελαφρά πτητικά μέσα όπως αλεξίπτωτο πλαγίας ή αετός. Για τα ελληνικά δεδομένα η αντίστοιχη πλατφόρμα φιλοξενείται από τον ιστότοπο αλεξίπτωτου πλαγιάς  [sky.gr](http://www.sky.gr) και περιλαμβάνει αρχείο πτήσεων για την τελευταία τουλάχιστον 20ετία.
+
+Το μεγάλο πλήθος πτήσεων που είναι καταχωρημένο σε αυτή την βάση δεδομένων αποτελεί ένα άριστο σύνολο δεδομένων το οποίο μπορεί να αξιοποιηθεί για να αναλυθεί η πτητική δραστηριότητας μιας περιοχής πτήσεων από ένα σημείο απογείωσης, το προφίλ των πιλότων που πετούν σε αυτήν, η διαχρονική δυναμική της ανά τα έτη και η πτητική συμπεριφορά ανά μήνα του έτους. Ωστόσο μία αδυναμία της πλατφόρμας (τουλάχιστον με μια πρώτη ματιά) είναι η δυνατότητα μαζικής εξαγωγής δεδομένων. 
+Η πληροφορική προσφέρει λύση για την εξαγωγή δεδομένων από το διαδίκτυο μέσω μιας τεχνικής που λέγεται [Web Scraping](https://en.wikipedia.org/wiki/Web_scraping) και ουσιαστικά συμβάλει στην λήψη και αποθήκευση των δεδομένων σε δομημένη μορφή.
+
+Προκειμένου λοιπόν να εξάγουμε χρήσιμα δεδομένα από τo ελληνικό αρχείο πτήσεων του [Leonardo XC](http://www.sky.gr/leonardo/tracks/GR/alltimes/brand:all,cat:1,class:all,xctype:all,club:all,pilot:all,takeoff:all&sortOrder=dateAdded) χρησιμοποιήσαμε την γλώσσα προγραμματισμού [R](https://cran.r-project.org/) και την βιβλιοθήκη [rvest](https://cran.r-project.org/web/packages/rvest/index.html).
+Η λήψη των δεδομένων αφορά το σημείο απογείωσης [Παραμυθιά (Ελλάδα)](http://www.sky.gr/leonardo/takeoff/14).
+Ο κώδικας για την λήψη των δεδομένων δεν διατίθεται δημόσια. Ωστόσο ο κώδικας για την ανάλυση τους είναι διαθέσιμος, μαζί με τα αποτελέσματα (πίνακες, διαγράμματα). Η ανάλυση παρουσιάζεται στην συνέχεια υπό την μορφή λόγιου προγραμματισμού (literate programming).
+
+# Ανάλυση δεδομένων
+
+
+## Ανάγνωση του πίνακα δεδομένων
+
+Αρχικά εισάγουμε τις απαραίτητες βιβλιοθήκες.
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(glue)
+library(parsedate)
+library(chron)
+library(leaflet)
+library(leaflet.providers)
+library(parallel)
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(ggthemr)
+library(magrittr)
+```
+
+
+Σε πρώτο στάδιο γίνεται η ανάγνωση των δεδομένων που έχουμε εξάγει μέσω web scraping από την ιστοσελίδα του Leonardo XC.
+
+
+Ας δοκιμάσουμε να εκτυπώσουμε τις πρώτες γραμμές του σχετικού πίνακα δεδομένων (data_cleaned).
+
+
+```{r}
+load("data_cleaned.Rda")
+head(data_cleaned)
+
+```
+Ο πίνακας έχει `r data_cleaned %>% nrow()` εγγραφές. Η πρώτη εισαγωγή πτήσης για την συγκεκριμένη περιοχή απογείωσης έγινε στις `r data_cleaned$mydate %>% min()` και η τελευταία έγινε (με περιορισμό την ημερομηνία λήψης των δεδομένων) στις  `r data_cleaned$mydate %>% max()`.
+
+
+Ας δούμε των αριθμών των πτήσεων ανάλογα με τον τύπο του πτητικού μέσου.
+Είναι χαρακτηριστική η επικράτηση του `r  data_cleaned %>% group_by(type) %>% tally() %>% arrange(n) %>% top_n(1) %>% pull(type)`.
+
+```{r}
+data_cleaned %>% group_by(type) %>% tally()
+```
+
+Ας κρατήσουμε μόνο τις πτήσεις `r  data_cleaned %>% group_by(type) %>% tally() %>% arrange(n) %>% top_n(1) %>% pull(type)`.
+
+```{r}
+data_cleaned <- data_cleaned %>%filter(type==c(data_cleaned %>% group_by(type) %>% tally() %>% arrange(n) %>% top_n(1) %>% pull(type))) 
+
+```
+
+Ακολουθεί η ανάλυση των δεδομένων μέσω συγκεκριμένων δεικτών και interactive διαγραμμάτων:
+
+## Πλήθος πτήσεων ανά έτος.
+```{r}
+ggthemr("earth", type="outer", layout="scientific", spacing=2)
+
+p <- data_cleaned %>%  group_by(year) %>% tally() %>% 
+ggplot(aes(x=year, y=n)) +
+  geom_bar(stat = "identity")+
+  geom_smooth(method='lm', formula= y~x, se=F) 
+ggplotly(p)  
+```
+Όπως φαίνεται από το παραπάνω διάγραμμα το πλήθος των πτήσεων έχει αυξητική τάση μέσα στην εικοσαετία (πράσινη γραμμή). 
+Η αύξηση μπορεί να οφείλεται σε παράγοντες που έχουν να κάνουν με την σταδιακή καταγραφή των πτήσεων στο Leonardo καθώς αυτό καθιερώνεται μέσα στον χρόνο, την συχνότητα των πτήσεων των τοπικών πιλότων, την επισκεψιμότητα της περιοχής λόγω διαφήμισης κτλ.
+
+## Μέγιστο Max_altitude, μέγιστη max_distance και μέγιστη xc_distance ανά έτος.
+
+Στα παρακάτω διαγράμματα αποτυπώνεται η διαχρονική ετήσια διακύμανση των καταγραφόμενων μέγιστων για τις μεταβλητές
+Max_altitude, max_distance & xc_distance.
+Διαχρονικά φαίνεται ότι ακολουθούν αυξητική τάση.
+
+```{r}
+p1 <-
+  data_cleaned %>%  group_by(year) %>% summarise(
+    Max_altitude = max(Max_altitude, na.rm = T),
+    max_distance = max(max_distance, na.rm = T),
+    xc_distance=max(xc_distance)
+  ) %>%
+  pivot_longer(cols = Max_altitude:xc_distance,
+               values_to = "Value") %>% 
+
+ggplot(aes(x=year, y=Value)) +
+  geom_bar(stat = "identity")+
+  facet_wrap(~name, scales="free" )
+  
+ggplotly(p1)  
+```
+
+## Πιλότος με μέγιστο ύψος (Max_altitude) ανά έτος και πτέρυγα που χρησιμοποίησε.
+
+Στο ακόλουθο διάγραμμα καταγράφεται ανά έτος ποιός πιλότος σημείωσε το μέγιστο υψόμετρο και με ποιά πτέρυγα.
+```{r}
+tbl2 <-data_cleaned %>% 
+             group_by(year ) %>%
+             filter(Max_altitude == max(Max_altitude, na.rm=T)) %>% 
+  select(year,pilot, Max_altitude, brand) 
+tbl2
+
+```
+### Επικρατέστερος πιλοτος
+
+
+```{r}
+tbl2 %>% group_by(pilot) %>% tally() %>% arrange(desc(n))
+```
+Όπως δείχνουν τα αποτελέσματα του πίνακα ο `r tbl2 %>% group_by(pilot) %>% tally() %>% arrange(desc(n)) %>% top_n(1) %>% pull(pilot)` είναι ο πιλότος που κατέχει το συγκεκριμένο ρεκορ για πολλά έτη (`r tbl2 %>% group_by(pilot) %>% tally() %>% arrange(desc(n)) %>% top_n(1) %>% pull(n)`).
+
+## Πιλότος με μέγιστη max_distance ανά έτος
+
+Ο επόμενος πίνακας δείχνει ανά έτος ποιός πιλότος κατάγραψε την μεγαλύτερη "Μέγιστη απόσταση".
+
+```{r}
+tbl3 <- data_cleaned %>% 
+             group_by(year ) %>%
+             filter(max_distance == max(max_distance, na.rm=T)) %>% 
+  select(year,pilot, max_distance) %>% arrange(desc(year,max_distance))
+tbl3
+```
+
+
+### Επικρατέστερος πιλοτος
+```{r}
+tbl3 %>% group_by(pilot) %>% tally() %>% arrange(desc(n))
+```
+Το ρεκόρ πλήθους ετών κατέχει ο `r tbl3 %>% group_by(pilot) %>% tally() %>% arrange(desc(n)) %>% top_n(1) %>% pull(pilot)` με `r tbl3 %>% group_by(pilot) %>% tally() %>% arrange(desc(n)) %>% top_n(1) %>% pull(n)` έτη.
+
+
+
+## Πιλότος με μέγιστη xc_distance ανά έτος
+
+Κατά αντιστοιχία προκύπτει ο δείκτης για την xc_distance.
+
+```{r}
+tbl4 <- data_cleaned %>% 
+             group_by(year ) %>%
+             filter(xc_distance == max(xc_distance, na.rm=T)) %>% 
+  select(year,pilot, xc_distance)
+tbl4
+```
+
+### Επικρατέστερος πιλότος
+```{r}
+tbl4 %>% group_by(pilot) %>% tally() %>% arrange(desc(n)) 
+
+```
+
+
+
+## Πλήθος πτήσεων ανά Μήνα του έτους 
+
+Επιπλέον, τα δεδομένα μπορούν να αναλυθούν με βάση τον μήνα. Στο επόμενο διάγραμμα αποδίδεται το πλήθος των πτήσεων ανά μήνα. 
+
+```{r}
+tbl5 <- data_cleaned %>% 
+             group_by(month) %>%  tally()%>% arrange(desc(n))
+p5 <- ggplot(tbl5,aes(x=month, y=n)) +
+  geom_bar(stat = "identity")
+ggplotly(p5)  
+```
+
+Προκύπτει, όπως είναι αναμενόμενο, οι περισσότερες πτήσεις να γίνονται από το συγκεκριμένο σημείο πτήσης το καλοκαίρι, με μέγιστο αριθμό πτήσεων τον `r tbl5 %>% top_n(1) %>% pull(month)`.
+
+
+## Μέσο και Max για τις μεταβλητές Max_altitude και xc_distance, ανά μήνα
+```{r}
+tbl6 <- data_cleaned %>% 
+             group_by(month) %>%summarise(MAX_Max_altitude  = max(Max_altitude, na.rm=T),
+                                          Mean_Max_altitude = mean(Max_altitude, na.rm=T),
+                                          Max_xc_distance = max(xc_distance, na.rm=T),
+                                          Mean_xc_distance = mean(xc_distance, na.rm=T),
+                                          )
+```
+### Διάγραμμα μέγιστου ύψους  (Max_altitude)
+
+Στο παρακάτω διάγραμμα παρουσιάζεται η μέση τιμή και το μέγιστο για την μεταβλητή Μέγιστο ύψος (Max_altitude).
+
+```{r}
+p6 <- ggplot(tbl6 %>% 
+  pivot_longer(cols = MAX_Max_altitude:Mean_Max_altitude,
+               values_to = "Value") ,
+  ) +
+  geom_line(aes(x=month, y=Value, group=name,linetype=name))+
+  ylab("meters")
+
+ggplotly(p6)
+```
+  
+
+
+
+### Διάγραμμα  μέγιστης απόστασης XC (xc_distance)
+Στο επόμενο διάγραμμα απεικονίζεται η μέση τιμή και το μέγιστο για την μεταβλητή "Απόσταση XC".
+
+```{r}
+tbl6a <- tbl6 %>% 
+  pivot_longer(cols = c(Max_xc_distance,Mean_xc_distance),
+               names_to = "Variable",
+               values_to = "Value") %>% select(- c(MAX_Max_altitude,Mean_Max_altitude))
+p7 <- ggplot(tbl6a)+
+  geom_line(aes(x=month, y=Value, group=Variable,linetype=Variable))+
+  ylab("Km")
+
+ggplotly(p7) 
+```
+Όπως βλέπουμε παρατηρείται περίεργη συμπεριφορά.
+Το Φεβρουάριο παρατηρείται ένα μέγιστο στο xc_distance με μεγάλη απόκλιση από την μέση xc_distance που καταγράφεται τον μήνα αυτό κατά την διάρκεια των 20 ετών.
+Πάμε να εντοπίσουμε ποιά είναι η πτήση αυτή και ποιός την έκανε
+```{r}
+data_cleaned %>% filter(xc_distance==tbl6a %>% filter(month=="Φεβ" & Variable=='Max_xc_distance') %>% pull(Value)) %>% 
+  select(pilot,URL)
+  
+```
+
+
+
+## Μέση διάρκεια πτήσης ανά έτος
+
+Ένας σημαντικός δείκτης για ένα σημείο απογείωσης είναι η μέση διάρκεια πτήσης. Στο παρακάτω διάγραμμα ο δείκτης παρουσιάζεται ανά έτος. Είναι χαρακτηριστική η επανάκαμψη και αύξηση της *Μέση διάρκεια πτήσης* που παρατηρείται από το 2015 (2021 δεν έκλεισε ακόμα).
+
+```{r}
+Sys.setenv(TZ='GMT') 
+tbl8 <- data_cleaned %>% group_by(year) %>% 
+  summarize(mean_duration=mean(duration, na.rm=T)) 
+p8 <- ggplot(tbl8)+
+  geom_line(aes(x=year, y=mean_duration))+
+  scale_y_chron(format="%H:%M:%S")
+ggplotly(p8)  
+```
+
+
+
+## Μέση διάρκεια πτήσης ανά μήνα
+
+Η *Μέση διάρκεια πτήσης* έχει περισσότερο ενδιαφέρον τους πιλότους αν εξειδικευτεί ανά μήνα ώστε να γνωρίζουν τα πτητικά χαρακτηριστικά ενός σημείου απογείωσης. 
+
+```{r}
+tbl9 <- data_cleaned %>% group_by(month) %>% 
+  summarize(mean_duration=mean(duration, na.rm=T)) 
+
+p9 <- ggplot(tbl9,aes(x=month, y=mean_duration, group=1))+
+  geom_line()+geom_point()+
+  scale_y_chron(format="%H:%M:%S")
+ggplotly(p9)  
+```
+
+
+## Πλήθος πτήσεων ανά πιλότο από την πίστα απογείωσης 
+
+Ενδιαφέρον έχει και η παρακολούθηση του προφίλ των πιλότων που πετάνε από την συγκεκριμένη περιοχή απογείωσης.
+Στο παρακάτω παράδειγμα παρατίθεται ένας πίνακας με το πλήθος των πτήσεων από την πίστα απογείωσης.
+Όπως φαίνεται, τις περισσότερες πτήσεις από την περιοχή απογείωσης τις έχει κάνει ο 
+`r data_cleaned %>% group_by(pilot) %>%  summarise(n=n()) %>% arrange(desc(n, na.rm=T)) %>% top_n(1) %>% pull(pilot)`.
+ 
+```{r}
+data_cleaned %>% group_by(pilot) %>% 
+  summarise(n=n()) %>% arrange(desc(n, na.rm=T))
+
+```
+
+## Συνολική xc_distance ανά πιλότο από την πίστα απογείωσης 
+
+Αντίστοιχα μπορεί να υπολογιστεί και η *Συνολική xc_distance ανά πιλότο*.
+
+
+```{r}
+data_cleaned %>% group_by(pilot) %>% 
+  summarise(sum_xc_distance=sum(xc_distance, na.rm=T)) %>% arrange(desc(sum_xc_distance))
+
+```
+
+
+# Επίλογος
+
+Οι δείκτες που υπολογίστηκαν είναι ενδεικτικοί και δείγμα των δυνατοτήτων που προσφέρονται από την στιγμή που ο χρήστης καταφέρει να ανακτήσει τα δεδομένα που επί χρόνια αποθηκεύονται στο Leonardo XC. Ανάλογα τις απαιτήσεις και τις ανάγκες, τα ερωτήματα προς τα δεδομένα μπορούν να παραμετροποιηθούν και να επικεντρωθούν σε πιο συγκεκριμένα χαρακτηριστικά που αφορούν την σύγκριση πιλότων, περιοχών, ετών ή μηνών. Σε καμία περίπτωση οι συγκρίσεις αυτές δεν θα πρέπει να έχουν σαν αποτέλεσμα την ανάπτυξη ανταγωνιστικού κλίματος ανάμεσα στους πιλότους και την υπέρβαση των ορίων τους και των κανόνων ασφαλείας.
+Τέλος, κρίνεται αναγκαία μια αναβάθμιση στο Leonardo XC που θα δίνει την δυνατότητα άμεσης εξαγωγής των δεδομένων χωρίς το κόστος και την πολυπλοκότητα διαδικασιών web scraping.
+
+Διευκρίνηση: δεν πετάω με κανένα πτητικό μέσο.
+
+
+
+
