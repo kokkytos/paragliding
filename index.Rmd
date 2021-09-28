@@ -293,7 +293,7 @@ data_cleaned %>% group_by(pilot) %>%
 ```
 
 ## Συνολική διάρκεια πτήσεων ανά πιλότο από την πίστα απογείωσης 
-Παρουσιάζονται οι top 10 πιλότοι: 
+Παρουσιάζονται οι top 10 πιλότοι. Τα αποτελέσματα είναι σε ώρες(h) : 
 ```{r}
 tbl10 <- data_cleaned %>% 
   group_by(pilot) %>% 
@@ -302,13 +302,13 @@ tbl10 <- data_cleaned %>%
   arrange(desc(duration))
 tbl10
 p10 <- tbl10 %>% 
-ggplot(aes(x=reorder(pilot, -duration) , y=duration)) +
+ggplot(aes(x=reorder(pilot, -duration) , y=as.numeric(duration))) +
   geom_bar(stat = "identity")+
   xlab("pilot")+
   ylab("total flight time (h)")+
-   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-g10 <- ggplotly(p10)
-g10
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+ggplotly(p10)
+
 
 
 ```
