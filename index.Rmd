@@ -36,7 +36,6 @@ library(parsedate)
 library(chron)
 library(leaflet)
 library(leaflet.providers)
-library(parallel)
 library(tidyverse)
 library(lubridate)
 library(plotly)
@@ -213,7 +212,7 @@ ggplotly(p6)
 
 
 
-### Διάγραμμα  μέγιστης απόστασης XC (xc_distance)
+### Διάγραμμα μέγιστης απόστασης XC (xc_distance)
 Στο επόμενο διάγραμμα απεικονίζεται η μέση τιμή και το μέγιστο για την μεταβλητή "Απόσταση XC".
 
 ```{r}
@@ -293,6 +292,26 @@ data_cleaned %>% group_by(pilot) %>%
 
 ```
 
+## Συνολική διάρκεια πτήσεων ανά πιλότο από την πίστα απογείωσης 
+Παρουσιάζονται οι top 10 πιλότοι: 
+```{r}
+tbl10 <- data_cleaned %>% 
+  group_by(pilot) %>% 
+  summarise(duration=sum(duration, na.rm=T)*24) %>% 
+  top_n(10) %>% 
+  arrange(desc(duration))
+tbl10
+p10 <- tbl10 %>% 
+ggplot(aes(x=reorder(pilot, -duration) , y=duration)) +
+  geom_bar(stat = "identity")+
+  xlab("pilot")+
+  ylab("total flight time (h)")+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+g10 <- ggplotly(p10)
+g10
+
+
+```
 
 # Επίλογος
 
